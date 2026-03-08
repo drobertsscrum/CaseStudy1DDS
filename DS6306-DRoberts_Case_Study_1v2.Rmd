@@ -1312,8 +1312,8 @@ ggplot(financial_long,
   scale_y_continuous(labels = dollar) +
   scale_color_manual(
     values = c(
-      "Naive Bayes" = "#1F4E79",  # Blue
-      "k-NN"        = "#C00000"   # Red
+      "Naive Bayes" = "#1F4E79",  
+      "k-NN"        = "#C00000"   
     )
   ) +
   labs(
@@ -1423,13 +1423,13 @@ exec_table %>%
     position = "left",
     font_size = 16
   ) %>%
-  row_spec(1, bold = TRUE) %>%      # Retained row bold
+  row_spec(1, bold = TRUE) %>%      
   row_spec(2,
            bold = TRUE,
            background = "#FDECEC",
-           color = "#B22222") %>%   # Attrition row highlight
-  row_spec(3, bold = TRUE) %>%      # Total row bold
-  column_spec(2, bold = TRUE) %>%   # Bold Count column
+           color = "#B22222") %>%   
+  row_spec(3, bold = TRUE) %>%      
+  column_spec(2, bold = TRUE) %>%   
   column_spec(3, bold = TRUE)
 
 # Create a circular chart
@@ -1453,8 +1453,8 @@ ggplot(donut_df, aes(x = 2, y = value, fill = category)) +
   xlim(0.5, 2.5) +  # controls hole size
   
   scale_fill_manual(values = c(
-    "Stayed" = "#0B3A66",     # navy
-    "Attrited" = "#D97706"    # dark orange
+    "Stayed" = "#0B3A66",     
+    "Attrited" = "#D97706"    
   )) +
   
   theme_void() +
