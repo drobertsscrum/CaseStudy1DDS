@@ -1,7 +1,7 @@
 # CaseStudy1DDS
 MSDS 6306: Doing Data Science Case Study 1 repository
 
-Link to Youtube Video: Add name here as a link
+Link to Youtube Video: Diane Roberts Case Study DS6306 : https://www.youtube.com/watch?v=jFDkkRs9nVU
 
 Executive Summary: The State of the Workforce
 Analysis of the current Frito Lay workforce reveals an attrition rate of 16.1%, representing a total headcount loss of 140 employees. This analysis shifts the strategic focus from "The Probability Trap"—high-percentage risks that involve low total headcount—to "The Volume Reality," where the actual financial exposure resides.
