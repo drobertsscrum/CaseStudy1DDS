@@ -1,0 +1,1722 @@
+---
+title: "DRoberts Case Study 1 DS6306"
+author: "Diane Roberts"
+date: "2026-02-21"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+## Establish library calls
+```{r library calls}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(tidyr)
+library(knitr)
+library(caret)
+library(class)
+library(e1071)
+library(knitr)
+library(kableExtra)
+library(magick)
+
+```
+## Ingest data for evaluation
+```{r ingest data}
+
+employee_data = read.csv("/Users/dianewroberts/Case Study 1/CaseStudy1-data.csv", sep = ",", header = TRUE)
+
+head(employee_data)
+str(employee_data)
+
+names(employee_data)
+```
+## Data wrangling - Impute missing fields and ensure that data is categoriezed as needed
+```{r data wrangling}
+
+#Evaluate if there are blank or NA fields
+employee_data %>%
+  summarise(across(everything(),
+                   ~sum(is.na(.) | . == "", na.rm = TRUE)))
+
+#No blanks or NA fields located
+
+employee_data_clean <- employee_data %>%
+  mutate(Attrition_factor = as.factor(Attrition),
+         BusinessTravel_factor = as.factor(BusinessTravel),
+         Department_factor = as.factor(Department),
+         Education_factor = as.factor(Education),
+         EducationField_factor = as.factor(EducationField),
+         EnvironmentSatisfaction_factor = as.factor(EnvironmentSatisfaction),
+         Gender_factor = as.factor(Gender),
+         JobInvolvement_factor = as.factor(JobInvolvement),
+         JobLevel_factor = as.factor(JobLevel),
+         JobSatisfaction_factor = as.factor(JobSatisfaction),
+         MaritalStatus_factor = as.factor(MaritalStatus),
+         OverTime_factor = as.factor(OverTime),
+         PerformanceRating_factor = as.factor(PerformanceRating),
+         RelationshipSatisfaction_factor = as.factor(RelationshipSatisfaction),
+         StockOptionLevel_factor = as.factor(StockOptionLevel),
+         WorkLifeBalance_factor = as.factor(WorkLifeBalance))
+
+view(employee_data_clean)
+
+# Create a dataset that only has employees who have left the company for visualization purposes
+
+employee_attrition = employee_data_clean %>%
+  filter(Attrition_factor == "Yes")
+
+view(employee_attrition)
+
+```
+# Visualization of data
+
+```{r data visualization, dev='png', fig.ext='png'}
+
+## In 5 year increments determine the highest number of employees attriting by the total number of years working
+
+ggplot(employee_attrition, aes(x = TotalWorkingYears)) +
+  geom_histogram(binwidth = 5)
+
+# The histogram appears to indicate that employees are most likely to attrit at <12 years and there is a steep drop after that. This could be due to being more willing to move to another job earlier in career for money, title, etc and being less tied to benefits and company culture. The highest level of attrition appears to be at 4-7 years
+
+# To view this smoothly I will create a density plot
+
+ggplot(employee_attrition, aes(x = TotalWorkingYears)) +
+  geom_density()
+
+## Creating a dataset with those employees who have not attrited
+
+#Original plot, worked to create an exec slide-friendly version
+#employee_notattrition = employee_data_clean %>%
+#  filter(Attrition_factor == "No")
+#ggplot(employee_notattrition, aes(x = TotalWorkingYears)) +
+#  geom_density()
+
+cutoff <- 12
+
+employee_notattrition <- employee_data_clean %>%
+  filter(Attrition_factor == "No")
+
+ggplot(employee_notattrition, aes(x = TotalWorkingYears)) +
+  
+  # Base density curve
+  geom_density(fill = "gray85",
+               color = "gray20",
+               linewidth = 1.2) +
+  
+  # Highlight region under same density curve
+  geom_density(
+    aes(fill = after_stat(ifelse(x < cutoff, "highlight", "normal"))),
+    alpha = 0.9,
+    color = NA
+  ) +
+  
+  scale_fill_manual(values = c("highlight" = "darkorange",
+                               "normal" = NA),
+                    guide = "none") +
+  
+  geom_vline(xintercept = cutoff,
+             linetype = "dashed",
+             linewidth = 1) +
+  
+  labs(
+    title = "Total Working Years Distribution",
+    x = "Total Working Years",
+    y = "Density"
+  ) +
+  
+  theme_minimal(base_size = 18) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(face = "bold"),
+    axis.text.y = element_text(color = "black"),   # show numbers
+    axis.ticks.y = element_line(color = "black")   # show ticks
+  )
+
+# Conduct a plot across all employees to determine age in years and highlight by color the difference with attrition versus non-attrition employees
+
+ggplot(employee_data_clean, aes(x = Age, y = TotalWorkingYears)) +
+  geom_point(mapping = aes(color = Attrition_factor))
+
+ggplot(employee_data_clean, aes(x = Age)) +
+  geom_bar()
+
+## In 5 year increments determine the highest number of employees attriting by the number of years working at DDSAnalytics
+
+ggplot(employee_attrition, aes(x = YearsAtCompany)) +
+  geom_histogram(binwidth = 5)
+
+## Now to evaluate the Attrition rate by Department
+
+pivot_table <- employee_data_clean %>%
+  count(Department, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Department",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Department")
+
+plot_df <- employee_data_clean %>%
+  count(Department_factor, Attrition_factor, name = "n") %>%
+  group_by(Department_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df, aes(x = Department_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Department",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+# Do a comparison by Department for Business Travel and attrition
+
+pivot_table <- employee_data_clean %>%
+  count(BusinessTravel, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Business Travel",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Business Travel")
+
+plot_df <- employee_data_clean %>%
+  count(Department_factor, BusinessTravel_factor, Attrition_factor, name = "n") %>%
+  group_by(Department_factor, BusinessTravel_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = ifelse(prop > 0.05, percent(prop, accuracy = 0.1), "")
+  ) %>%
+  ungroup()
+
+ggplot(plot_df,
+       aes(x = Department_factor,
+           y = prop,
+           fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 3.5) +
+  facet_wrap(~ BusinessTravel_factor) +
+  scale_y_continuous(labels = percent_format()) +
+  theme_minimal()
+
+# Now I would like to visualize the impact of travel on overall attrition; categorical x categorical
+
+plot_df_3 <- employee_data_clean %>%
+  count(BusinessTravel_factor, Attrition_factor, name = "n") %>%
+  group_by(BusinessTravel_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_3, aes(x = BusinessTravel_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Travel",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Next review Daily Salary Rate against Attrition
+ggplot(employee_data_clean, aes(x = DailyRate, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+## Distance from home
+ggplot(employee_data_clean, aes(x = DistanceFromHome, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+## Education
+
+pivot_table <- employee_data_clean %>%
+  count(Education, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Education",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Education")
+
+plot_df_4 <- employee_data_clean %>%
+  count(Education_factor, Attrition_factor, name = "n") %>%
+  group_by(Education_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_4, aes(x = Education_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Education",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Education field
+
+pivot_table <- employee_data_clean %>%
+  count(EducationField, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Education Field",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Education Field")
+
+plot_df_5 <- employee_data_clean %>%
+  count(EducationField_factor, Attrition_factor, name = "n") %>%
+  group_by(EducationField_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_5, aes(x = EducationField_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Education Field",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## EnvironmentSatisfaction
+
+pivot_table <- employee_data_clean %>%
+  count(EnvironmentSatisfaction, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Environment Satisfaction",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Environment Satisfaction")
+
+plot_df_6 <- employee_data_clean %>%
+  count(EnvironmentSatisfaction_factor, Attrition_factor, name = "n") %>%
+  group_by(EnvironmentSatisfaction_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_6, aes(x = EnvironmentSatisfaction_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Environment Satisfaction",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+#Gender
+
+pivot_table <- employee_data_clean %>%
+  count(Gender, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Gender",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Gender")
+
+plot_df_7 <- employee_data_clean %>%
+  count(Gender_factor, Attrition_factor, name = "n") %>%
+  group_by(Gender_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_7, aes(x = Gender_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Gender",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Hourly Rate against Attrition
+ggplot(employee_data_clean, aes(x = HourlyRate, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+## Job Involvement as related to Attrition
+
+pivot_table <- employee_data_clean %>%
+  count(JobInvolvement, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Job Involvement",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Job Involvement")
+
+plot_df_8 <- employee_data_clean %>%
+  count(JobInvolvement_factor, Attrition_factor, name = "n") %>%
+  group_by(JobInvolvement_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_8, aes(x = JobInvolvement_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Job Involvement",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Job Level related to Attrition
+
+pivot_table <- employee_data_clean %>%
+  count(JobLevel, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Job Level",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Job Level")
+
+plot_df_9 <- employee_data_clean %>%
+  count(JobLevel_factor, Attrition_factor, name = "n") %>%
+  group_by(JobLevel_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_9, aes(x = JobLevel_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Job Level",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Using Volume create a horizontal bar chart of employees who attrit
+
+plot_left <- employee_data_clean %>%
+  filter(Attrition_factor == "Yes") %>%
+  count(JobLevel, name = "Left_Count") %>%
+  mutate(
+    JobLevel = factor(JobLevel, levels = 5:1)  # reverse order
+  )
+
+ggplot(plot_left, aes(x = JobLevel, y = Left_Count, fill = Left_Count)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = Left_Count),
+            hjust = -0.15,
+            size = 6,
+            fontface = "bold") +
+  coord_flip() +
+  scale_fill_gradient(low = "#CFE8FF", high = "#0B3A66") +
+  labs(
+    title = "Attrition Volume by Job Level",
+    subtitle = "Darker bars indicate higher attrition counts",
+    x = "Job Level",
+    y = "Employees Who Left"
+  ) +
+  theme_minimal(base_size = 18) +
+  theme(
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    plot.title = element_text(face = "bold")
+  ) +
+  expand_limits(y = max(plot_left$Left_Count) * 1.15)
+
+## Job Satisfaction by Attrition
+
+pivot_table <- employee_data_clean %>%
+  count(JobSatisfaction, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Job Satisfaction",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Job Satisfaction")
+
+plot_df_10 <- employee_data_clean %>%
+  count(JobSatisfaction_factor, Attrition_factor, name = "n") %>%
+  group_by(JobSatisfaction_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_10, aes(x = JobSatisfaction_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Job Satisfaction",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Marital Status
+
+pivot_table <- employee_data_clean %>%
+  count(MaritalStatus, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Marital Status",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Marital Status")
+
+plot_df_11 <- employee_data_clean %>%
+  count(MaritalStatus_factor, Attrition_factor, name = "n") %>%
+  group_by(MaritalStatus_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_11, aes(x = MaritalStatus_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Marital Status",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Over time work related to Attrition
+
+pivot_table <- employee_data_clean %>%
+  count(OverTime, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Over Time",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Over Time")
+
+plot_df_12 <- employee_data_clean %>%
+  count(OverTime_factor, Attrition_factor, name = "n") %>%
+  group_by(OverTime_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_12, aes(x = OverTime_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Over Time",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Percentage Increase related to Attrition
+
+ggplot(employee_data_clean, aes(x = PercentSalaryHike, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+## Performance Rating related to Attrition. This is an interesting self-reporting statistic as no employee in the dataset reported having a 1 or 2 rating.
+
+pivot_table <- employee_data_clean %>%
+  count(PerformanceRating, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Performance Rating",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Performance Rating")
+
+plot_df_13 <- employee_data_clean %>%
+  count(PerformanceRating_factor, Attrition_factor, name = "n") %>%
+  group_by(PerformanceRating_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_13, aes(x = PerformanceRating_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Performance Rating",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Relationship Satisfaction related to Attrition
+
+pivot_table <- employee_data_clean %>%
+  count(RelationshipSatisfaction, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Relationship Satisfaction",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Relationship Satisfaction")
+
+plot_df_14 <- employee_data_clean %>%
+  count(RelationshipSatisfaction_factor, Attrition_factor, name = "n") %>%
+  group_by(RelationshipSatisfaction_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_14, aes(x = RelationshipSatisfaction_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Relationship Satisfaction",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Stock Option Level
+
+pivot_table <- employee_data_clean %>%
+  count(StockOptionLevel, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Stock Option Level",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Stock Option Level")
+
+plot_df_15 <- employee_data_clean %>%
+  count(StockOptionLevel_factor, Attrition_factor, name = "n") %>%
+  group_by(StockOptionLevel_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_15, aes(x = StockOptionLevel_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Stock Option Level",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Training Times Last Year
+
+ggplot(employee_data_clean, aes(x = TrainingTimesLastYear, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+##Work Life Balance related to Attrition
+
+pivot_table <- employee_data_clean %>%
+  count(WorkLifeBalance, Attrition_factor) %>%
+  pivot_wider(
+    names_from = Attrition_factor,
+    values_from = n
+  ) %>%
+  mutate(
+    Total = No + Yes,
+    Attrition_Rate = percent(Yes / Total, accuracy = 0.1)
+  )
+
+kable(pivot_table,
+      col.names = c("Work Life Balance",
+                    "Stayed (No)",
+                    "Attrited (Yes)",
+                    "Total Employees",
+                    "Attrition Rate"),
+      caption = "Attrition Rate by Work Life Balance")
+
+plot_df_16 <- employee_data_clean %>%
+  count(WorkLifeBalance_factor, Attrition_factor, name = "n") %>%
+  group_by(WorkLifeBalance_factor) %>%
+  mutate(
+    prop  = n / sum(n),
+    label = percent(prop, accuracy = 0.1)
+  ) %>%
+  ungroup()
+
+ggplot(plot_df_16, aes(x = WorkLifeBalance_factor, y = prop, fill = Attrition_factor)) +
+  geom_col() +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            color = "white",
+            size = 4) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Attrition Rate by Work Life Balance",
+       y = "Proportion",
+       fill = "Attrition") +
+  theme_minimal()
+
+## Years in Current Role related to Attrition
+
+ggplot(employee_data_clean, aes(x = YearsInCurrentRole, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+## Years since last promotion
+
+ggplot(employee_data_clean, aes(x = YearsSinceLastPromotion, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+## Years with current manager
+
+ggplot(employee_data_clean, aes(x = YearsWithCurrManager, fill = Attrition_factor)) +
+  geom_histogram() +
+  facet_wrap(vars(Attrition_factor))
+
+## These visualizations provide a path forward but do not deal with issues around the scale of the data and additional data wrangling that is needed to create models.
+
+## Rank Variables by number of employees (volume) and probability in descending order
+
+attrition_counts <- employee_data_clean %>%
+  filter(Attrition == "Yes") %>%
+  select(where(is.factor)) %>%   # only factor variables
+  pivot_longer(cols = everything(),
+               names_to = "Variable",
+               values_to = "Value") %>%
+  group_by(Variable, Value) %>%
+  summarise(employees_lost = n(), .groups = "drop") %>%
+  arrange(desc(employees_lost))
+
+# View the top attrition drivers
+view(attrition_counts)
+
+attrition_probability <- employee_data_clean %>%
+  select(Attrition, where(is.factor)) %>%   # keep Attrition
+  pivot_longer(cols = -Attrition,
+               names_to = "Variable",
+               values_to = "Value") %>%
+  group_by(Variable, Value) %>%
+  summarise(
+    total_employees = n(),
+    employees_lost = sum(Attrition == "Yes"),
+    attrition_rate = employees_lost / total_employees,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(attrition_rate))
+
+view(attrition_probability)
+
+```
+## Reviewing the impact of career stage on the top 3 attrition factors
+```{r career stage}
+attrition_profile_plot = employee_data_clean %>%
+  mutate(
+    CareerStage = case_when(
+      TotalWorkingYears <= 5 ~ "Early Career",
+      TotalWorkingYears <= 10 ~ "Developing",
+      TotalWorkingYears <= 20 ~ "Established",
+      TRUE ~ "Senior"
+    ),
+    StockOptionGroup = ifelse(StockOptionLevel == 0, "No Stock Options", "Has Stock Options")
+  ) %>%
+  group_by(CareerStage, OverTime, StockOptionGroup) %>%
+  summarise(
+    AttritionRate = mean(Attrition_factor == "Yes"),
+    Count = n(),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = CareerStage, y = AttritionRate, fill = OverTime)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~StockOptionGroup) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Attrition Risk by Employee Profile",
+    subtitle = "Career Stage, Overtime, and Stock Incentives",
+    x = "Career Stage",
+    y = "Attrition Rate",
+    fill = "Overtime"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+attrition_profile_plot
+
+```
+## Data Wrangling for k-NN model
+```{r k-NN data prep}
+
+## I kept the ordinal variables numeric and scaled because k-NN works off distance. If I dummy-encoded them, I’d increase the dimensionality and potentially weaken the calculations. This keeps the model simpler and more stable. And I should not scale based on the full data set but on each individual train and test data set to keep the information separate and not leak info.
+
+## First dataset with full values to test the quality of the datasets
+  kNN_employee_data <- employee_data_clean %>%
+  mutate(
+    Attrition_factor = factor(Attrition_factor, levels = c("No", "Yes")),
+    OverTime_Yes = ifelse(OverTime == "Yes", 1, 0),
+    MaritalStatus_Single = ifelse(MaritalStatus == "Single", 1, 0),
+    Travel_Frequently = ifelse(BusinessTravel == "Travel_Frequently", 1, 0)
+  ) %>%
+  select(
+    Attrition_factor,
+    Age,
+    TotalWorkingYears,
+    MonthlyIncome,
+    StockOptionLevel,
+    JobLevel,
+    JobSatisfaction,
+    JobInvolvement,
+    WorkLifeBalance,
+    OverTime_Yes,
+    MaritalStatus_Single,
+    Travel_Frequently)
+
+names(kNN_employee_data)
+
+ kNN_small_data <- employee_data_clean %>%
+  mutate(
+    Attrition_factor = factor(Attrition_factor, levels = c("No", "Yes")),
+    OverTime_Yes = ifelse(OverTime == "Yes", 1, 0),
+    MaritalStatus_Single = ifelse(MaritalStatus == "Single", 1, 0),
+    Travel_Frequently = ifelse(BusinessTravel == "Travel_Frequently", 1, 0)
+  ) %>%
+  select(
+  Attrition_factor,
+  StockOptionLevel,
+  JobLevel,
+  OverTime_Yes,
+  MonthlyIncome,
+  Age
+)
+ 
+ view(kNN_small_data)
+
+## Scale data
+kNN_data <- kNN_employee_data %>%
+  mutate(across(-Attrition_factor, scale))
+
+kNN_data2 <- kNN_small_data %>%
+  mutate(across(-Attrition_factor,scale))
+
+## Create test and train datasets 
+set.seed(123)
+trainIndices <- createDataPartition(
+  employee_data_clean$Attrition_factor,
+  p = 0.70,
+  list = FALSE
+)
+
+trainData_knn <- kNN_data[trainIndices, ]
+testData_knn  <- kNN_data[-trainIndices, ]
+
+head(trainData_knn)
+head(testData_knn)
+
+names(trainData_knn)
+
+trainData_knn2 <- kNN_data2[trainIndices, ]
+testData_knn2  <- kNN_data2[-trainIndices, ]
+
+head(trainData_knn2)
+head(testData_knn2)
+
+names(trainData_knn2)
+
+
+knn_k5 <- train(
+  Attrition_factor ~ .,
+  data = trainData_knn,
+  method = "knn",
+  preProcess = c("center", "scale"),
+  tuneGrid = data.frame(k = 5)
+)
+
+knn_k5
+
+knn_k5b <- train(
+  Attrition_factor ~ .,
+  data = trainData_knn2,
+  method = "knn",
+  preProcess = c("center", "scale"),
+  tuneGrid = data.frame(k = 5)
+)
+
+knn_k5b
+
+pred_class <- predict(knn_k5, newdata = testData_knn)
+confusionMatrix(pred_class, testData_knn$Attrition_factor, positive = "Yes")
+
+pred_class <- predict(knn_k5b, newdata = testData_knn2)
+confusionMatrix(pred_class, testData_knn2$Attrition_factor, positive = "Yes")
+
+knn_tuned <- train(
+  Attrition_factor ~ .,
+  data = trainData_knn2,
+  method = "knn",
+  preProcess = c("center", "scale"),
+  tuneGrid = data.frame(k = 1:30)
+)
+
+knn_tuned$bestTune
+plot(knn_tuned)
+
+
+pred_class <- predict(knn_tuned, newdata = testData_knn2)
+confusionMatrix(pred_class, testData_knn2$Attrition_factor, positive = "Yes")
+
+
+pred_prob <- predict(knn_tuned, newdata = testData_knn2, type = "prob")[, "Yes"]
+thresholds <- seq(0.05, 0.60, by = 0.01)
+
+# Based on the initial results of the full and smaller knn datasets, I have chosen to use the smaller one to reduce noise.
+
+knn_results <- data.frame(threshold = thresholds, Sensitivity = NA, Specificity = NA, Accuracy = NA, TP = NA, FP = NA, TN = NA, FN = NA)
+
+for (i in seq_along(thresholds)) {
+  t <- thresholds[i]
+  preds <- factor(ifelse(pred_prob >= t, "Yes", "No"), levels = c("No","Yes"))
+  cm <- confusionMatrix(preds, testData_knn2$Attrition_factor, positive = "Yes")
+  tab <- cm$table
+  knn_results$Sensitivity[i] <- unname(cm$byClass["Sensitivity"])
+  knn_results$Specificity[i] <- unname(cm$byClass["Specificity"])
+  knn_results$Accuracy[i]    <- unname(cm$overall["Accuracy"])
+  knn_results$TN[i] <- tab["No","No"];  knn_results$TP[i] <- tab["Yes","Yes"]
+  knn_results$FP[i] <- tab["Yes","No"]; knn_results$FN[i] <- tab["No","Yes"]
+}
+
+knn_results
+
+ggplot(knn_results, aes(x = threshold)) +
+  geom_line(aes(y = Sensitivity, color = "Sensitivity"), linewidth = 1) +
+  geom_line(aes(y = Specificity, color = "Specificity"), linewidth = 1) +
+  geom_hline(yintercept = 0.60, linetype = "dashed") +
+  labs(title = "Sensitivity & Specificity by Threshold",
+       x = "Threshold",
+       y = "Metric Value",
+       color = "Metric") +
+  theme_minimal()
+
+# This line of code calculates Balanced Accuracy
+knn_results$BalancedAccuracy <- 
+  (knn_results$Sensitivity + knn_results$Specificity) / 2
+
+knn_results[which.max(knn_results$BalancedAccuracy), ]
+
+
+knn_k23 <- train(
+  Attrition_factor ~ .,
+  data = trainData_knn2,
+  method = "knn",
+  preProcess = c("center", "scale"),
+  tuneGrid = data.frame(k = 23)
+)
+
+prob_yes_knn <- predict(knn_k23,
+                        newdata = testData_knn2,
+                        type = "prob")[, "Yes"]
+
+threshold <- 0.09
+# Used the threshold found by Balanced Accuracy
+
+pred_knn_adj <- factor(ifelse(prob_yes_knn >= threshold, "Yes", "No"),
+                       levels = c("No", "Yes"))
+
+kNNcm <- confusionMatrix(pred_knn_adj,
+                testData_knn2$Attrition_factor,
+                positive = "Yes")
+
+print("kNN Confusion Matrix")
+kNNcm
+
+```
+## Now work on the Naive Bayes model for comparison
+```{r nb data and model}
+
+#Data wrangling - while not removing as many variables due to noise, I am removing variables that are constant and don't appear to add value. e.g, Over18 is always Yes. I also considered removing PerformanceRating because it is only ever 3 or 4 but decided against that.
+
+employee_nb <- employee_data %>%
+  select(
+    Attrition,
+    OverTime,
+    JobLevel,
+    JobInvolvement,
+    MaritalStatus,
+    TotalWorkingYears,
+    WorkLifeBalance,
+    MonthlyIncome,
+    Age,
+    BusinessTravel
+  ) %>%
+  mutate(
+    Attrition = factor(Attrition, levels = c("No","Yes")),
+    OverTime = factor(OverTime),
+    JobLevel = factor(JobLevel),        
+    JobInvolvement = factor(JobInvolvement),
+    MaritalStatus = factor(MaritalStatus),
+    WorkLifeBalance = factor(WorkLifeBalance),
+    BusinessTravel = factor(BusinessTravel)
+  ) %>%
+  droplevels()
+
+trainData_nb <- employee_nb[trainIndices, ]
+testData_nb  <- employee_nb[-trainIndices, ]
+
+nb_model <- naiveBayes(Attrition ~ ., data = trainData_nb, laplace = 1)
+
+prob_yes <- predict(nb_model,
+                    newdata = testData_nb,
+                    type = "raw")[, "Yes"]
+
+threshold <- 0.11
+pred_nb_adj <- factor(ifelse(prob_yes >= threshold, "Yes", "No"),
+                   levels = c("No","Yes"))
+
+nbcm <- confusionMatrix(pred_nb_adj,
+                testData_nb$Attrition,
+                positive = "Yes")
+print("Naive Bayes Confusion Matrix:")
+nbcm
+## kNN and Naive Bayes are very close
+```
+## Calculate the cost for each model
+```{r cost calculations}
+
+retention_Incentive = 200.00
+
+kNN_retention_Cost = retention_Incentive * (kNNcm$table[2,2] + kNNcm$table[2,1])
+nb_retention_Cost = retention_Incentive * (nbcm$table[2,2] + nbcm$table[2,1])
+print("kNN Retention Cost:")
+kNN_retention_Cost
+print("Naive Bayes Retention Cost:")
+nb_retention_Cost
+
+cost_results <- data.frame(
+  Model = c("kNN", "Naive Bayes"),
+  TotalCost = c(kNN_retention_Cost, nb_retention_Cost)
+)
+
+ggplot(cost_results, aes(x = Model, y = TotalCost, fill = Model)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = round(TotalCost, 0)),
+            vjust = -0.5,
+            size = 5,
+            fontface = "bold") +
+  scale_fill_manual(values = c("kNN" = "blue",
+                               "Naive Bayes" = "red")) +
+  labs(title = "Total Attrition Cost by Model",
+       x = "Model",
+       y = "Total Estimated Cost") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+## This makes it appear that the kNN model is best. However, we haven't evaluated total savings yet.
+
+```
+## Calculate total savings
+## A key component in the savings model is that it says that the cost to save an employee can be between 50-400% of their MonthlyIncome annualized. 
+# Replacement cost assumptions were modeled between 0.5× and 4× annual salary, consistent with research from SHRM (2017) and Boushey & Glynn (2012), which estimate turnover costs ranging from 50% to over 200% of annual compensation depending on role complexity. 
+# Boushey, H., & Glynn, S. J. (2012). There are significant business costs to replacing employees. Center for American Progress.
+# Society for Human Resource Management. (2017). Human Capital Benchmarking Report.I will calculate at .5x, 1x, 2x and 4x
+
+```{r calculate total savings}
+
+trainData <- kNN_data2[trainIndices, ]
+testData  <- kNN_data2[-trainIndices, ]
+
+testData$AnnualIncome <- testData$MonthlyIncome * 12
+
+calculate_savings <- function(predictions, actuals, income, multiplier) {
+  
+  TP_rows <- which(predictions == "Yes" & actuals == "Yes")
+  FN_rows <- which(predictions == "No"  & actuals == "Yes")
+  
+  TP_income <- sum(income[TP_rows])
+  FN_income <- sum(income[FN_rows])
+  
+  retention_cost <- sum(predictions == "Yes") * 200
+  
+  money_saved <- TP_income * multiplier
+  replacement_cost <- FN_income * multiplier
+  
+  net_savings <- money_saved - retention_cost - replacement_cost
+  
+  return(net_savings)
+}
+
+multipliers <- c(0.5, 1, 2, 4)
+
+knn_results <- sapply(multipliers, function(m) {
+  calculate_savings(
+    pred_knn_adj,
+    testData$Attrition_factor,
+    testData$AnnualIncome,
+    m
+  )
+})
+
+nb_results <- sapply(multipliers, function(m) {
+  calculate_savings(
+    pred_nb_adj,
+    testData$Attrition,
+    testData$MonthlyIncome * 12,
+    m
+  )
+})
+
+financial_results <- data.frame(
+  Multiplier = multipliers,
+  kNN_NetSavings = knn_results,
+  NB_NetSavings = nb_results
+)
+
+financial_long <- financial_results %>%
+  pivot_longer(
+    cols = c(kNN_NetSavings, NB_NetSavings),
+    names_to = "Model",
+    values_to = "NetSavings"
+  ) %>%
+  mutate(
+    NetLoss = -NetSavings,
+    Model = recode(Model,
+                   kNN_NetSavings = "k-NN",
+                   NB_NetSavings  = "Naive Bayes")
+  )
+
+ggplot(financial_long,
+       aes(x = Multiplier,
+           y = NetLoss,
+           color = Model,
+           group = Model)) +
+  geom_line(linewidth = 2) +
+  geom_point(size = 4) +
+  scale_x_continuous(
+    breaks = multipliers,
+    labels = paste0(multipliers, "x")
+  ) +
+  scale_y_continuous(labels = dollar) +
+  scale_color_manual(
+    values = c(
+      "Naive Bayes" = "#1F4E79",  # Blue
+      "k-NN"        = "#C00000"   # Red
+    )
+  ) +
+  labs(
+    title = "Net Financial Impact by Model",
+    x = "Replacement Cost Multiplier (0.5x to 4.0x)",
+    y = "Net Loss ($)"
+  ) +
+  theme_classic(base_size = 18) +
+  theme(
+    legend.title = element_blank(),
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    legend.position = "top"
+  )
+
+## Across all replacement cost scenarios, from 0.5× to 4× annual salary, the Naive Bayes model consistently results in lower net financial loss than k-NN. As the assumed cost of replacing an employee increases, the total loss grows significantly, reinforcing that missed attrition cases (false negatives) are the primary financial driver. In higher-cost scenarios, the economic impact of failing to identify employees who leave outweighs the cost of retention interventions, making model sensitivity increasingly critical to financial performance.
+
+## Now pair this data with the career stage information found earlier to get a view of the career stage, multipliers and replacement costs. Note that this is no longer the median salary but an attempt to look at various salary levels categorized by Job Level to see the impact.
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+
+employee_data_career <- employee_data_clean %>%
+  mutate(
+    CareerStage = case_when(
+      JobLevel == 1 ~ "Entry",
+      JobLevel == 2 ~ "Developing",
+      JobLevel == 3 ~ "Mid-Senior",
+      JobLevel >= 4 ~ "Leadership"
+    )
+  )
+
+salary_stage <- employee_data_career %>%
+  group_by(CareerStage) %>%
+  summarise(
+    MedianSalary = median(MonthlyIncome, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+multipliers <- tibble(
+  Multiplier = c(0.5, 1, 2, 4)
+)
+
+cost_table <- crossing(salary_stage, multipliers) %>%
+  mutate(
+    AttritionCost = MedianSalary * 12 * Multiplier,
+    CareerStage = factor(CareerStage,
+                         levels = c("Entry","Developing","Mid-Senior","Leadership")),
+    Multiplier = factor(Multiplier,
+                        levels = c(0.5,1,2,4),
+                        labels = c("0.5x","1x","2x","4x"))
+  )
+
+# Create label data for only the lowest and highest scenarios
+label_data <- cost_table %>%
+  filter(Multiplier %in% c("0.5x","4x"))
+
+ggplot(cost_table, aes(x = CareerStage, y = AttritionCost, fill = Multiplier)) +
+  geom_col(position = "dodge") +
+  geom_text(
+  data = label_data,
+  aes(label = label_dollar(scale = 1e-3, suffix = "K", accuracy = 1)(AttritionCost)),
+  position = position_dodge(width = 0.9),
+  angle = 90,
+  vjust = -0.3,
+  hjust = 0.5,
+  size = 3.5,
+  fontface = "bold"
+) +
+  scale_y_continuous(
+  labels = dollar_format(),
+  expand = expansion(mult = c(0.02, 0.18))
+) +
+  theme_minimal()
+```
+
+## Produce an executive level summary
+```{r executive summary table}
+
+exec_table <- employee_data %>%
+  count(Attrition) %>%
+  mutate(
+    Status = ifelse(Attrition == "No",
+                    "Retained (Stayed)",
+                    "Attrition (Lost)"),
+    Percentage = percent(n / sum(n), accuracy = 0.1)
+  ) %>%
+  select(Status, Count = n, Percentage) %>%
+  bind_rows(
+    data.frame(
+      Status = "Total Employees",
+      Count = sum(.$Count),
+      Percentage = "100%"
+    )
+  )
+
+
+exec_table %>%
+  kable(
+    col.names = c("Status", "Count", "Percentage"),
+    align = c("l", "c", "c")
+  ) %>%
+  kable_styling(
+    full_width = FALSE,
+    position = "left",
+    font_size = 16
+  ) %>%
+  row_spec(1, bold = TRUE) %>%      # Retained row bold
+  row_spec(2,
+           bold = TRUE,
+           background = "#FDECEC",
+           color = "#B22222") %>%   # Attrition row highlight
+  row_spec(3, bold = TRUE) %>%      # Total row bold
+  column_spec(2, bold = TRUE) %>%   # Bold Count column
+  column_spec(3, bold = TRUE)
+
+# Create a circular chart
+
+attr_rate <- employee_data %>%
+  summarise(rate = mean(Attrition == "Yes")) %>%
+  pull(rate)
+
+# Order matters: Stayed first, Attrited second
+donut_df <- data.frame(
+  category = c("Stayed", "Attrited"),
+  value = c(1 - attr_rate, attr_rate)
+)
+
+ggplot(donut_df, aes(x = 2, y = value, fill = category)) +
+  geom_col(color = "white", linewidth = 1.2) +
+  
+  # Rotate so orange lands bottom-left
+  coord_polar(theta = "y", start = pi * 0.35) +
+  
+  xlim(0.5, 2.5) +  # controls hole size
+  
+  scale_fill_manual(values = c(
+    "Stayed" = "#0B3A66",     # navy
+    "Attrited" = "#D97706"    # dark orange
+  )) +
+  
+  theme_void() +
+  theme(legend.position = "none") +
+  
+  annotate("text", x = 0, y = 0,
+           label = percent(attr_rate, accuracy = 0.1),
+           size = 18, fontface = "bold") +
+  
+  annotate("text", x = 0, y = 0,
+           label = "\nAttrition Rate",
+           size = 6)
+
+```
+## Charts for presentation Purposes
+```{r presentation charts}
+
+## Create a data frame with the top 3 attrition risks: Stock Options, OverTime and Job Level
+
+
+# ---- 1) Build the 5 segments (adjust thresholds if your EDA used different cutoffs) ----
+risk_df <- bind_rows(
+
+  # 1) Zero Stock Options
+  employee_data_clean %>%
+    filter(StockOptionLevel == 0) %>%
+    summarise(RiskFactor = "Zero Stock Options",
+              Left = sum(Attrition_factor == "Yes")),
+
+  # 2) Job Level 1 only (Entry Level)
+  employee_data_clean %>%
+    filter(JobLevel == 1) %>%
+    summarise(RiskFactor = "Job Level 1\n(Entry Level)",
+              Left = sum(Attrition_factor == "Yes")),
+
+  # 3) Mandatory OverTime
+  employee_data_clean %>%
+    filter(OverTime == "Yes") %>%
+    summarise(RiskFactor = "Mandatory OverTime",
+              Left = sum(Attrition_factor == "Yes")),
+
+  # 4) Low Environment Satisfaction (commonly 1 = low)
+  employee_data_clean %>%
+    filter(EnvironmentSatisfaction == 1) %>%
+    summarise(RiskFactor = "Low Environment\nSatisfaction",
+              Left = sum(Attrition_factor == "Yes")),
+
+  # 5) Frequent Travel
+  employee_data_clean %>%
+    filter(BusinessTravel == "Travel_Frequently") %>%
+    summarise(RiskFactor = "Frequent Travel",
+              Left = sum(Attrition_factor == "Yes"))
+
+) %>%
+  mutate(
+    # Top 3 = red; bottom 2 = gray (like the slide)
+    Tier = ifelse(RiskFactor %in% c("Zero Stock Options",
+                                   "Job Level 1\n(Entry Level)",
+                                   "Mandatory OverTime"),
+                  "Top", "Lower"),
+    BarColor = ifelse(Tier == "Top", "#C81E1E", "#5A5A5A"),
+    Label = ifelse(Tier == "Top",
+                   paste0(Left, " Employees Lost"),
+                   "Lower Volume")
+  ) %>%
+  arrange(desc(Left)) %>%
+  mutate(RiskFactor = factor(RiskFactor, levels = rev(RiskFactor)))
+
+# ---- 2) Plot (slide-style) ----
+p <- ggplot(risk_df, aes(x = Left, y = RiskFactor)) +
+
+  geom_col(fill = risk_df$BarColor, width = 0.65) +
+
+  # Label inside top bars (white), "Lower Volume" outside gray bars (black)
+  geom_text(aes(label = Label),
+            color = ifelse(risk_df$Tier == "Top", "white", "black"),
+            fontface = "bold",
+            size = 5,
+            hjust = ifelse(risk_df$Tier == "Top", 1, 0),
+            nudge_x = ifelse(risk_df$Tier == "Top", -2, 2)) +
+
+  labs(
+    title = "Top Attrition Risk Segments",
+    x = NULL,
+    y = NULL
+  ) +
+
+  theme_minimal(base_size = 18) +
+  theme(
+    plot.title = element_text(face = "bold", size = 34, color = "black"),
+    axis.text.y = element_text(size = 18, color = "black", face = "bold"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid = element_blank(),
+    plot.background  = element_rect(fill = "#E8F0F4", color = NA),
+    panel.background = element_rect(fill = "#E8F0F4", color = NA),
+    plot.margin = margin(20, 40, 20, 40)
+  ) +
+
+  # Give extra room for "Employees Lost" text to the right
+  expand_limits(x = max(risk_df$Left) * 1.25)
+
+p
+```
+## Show the difference between cost and true cost
+
+```{r cost vs true cost}
+
+# 1) Build annual salary + scenario costs
+cost_df <- employee_data_clean %>%
+  mutate(AnnualSalary = MonthlyIncome * 12) %>%
+  crossing(multiplier = c(0.5, 1, 2, 4)) %>%
+  mutate(ReplacementCost = AnnualSalary * multiplier,
+         IncentiveCost = 200)
+
+# 2) Summarize for boxplot look (distribution)
+ggplot(cost_df, aes(x = factor(multiplier), y = ReplacementCost)) +
+  geom_boxplot(outlier.alpha = 0.15) +
+  geom_hline(yintercept = 200, linetype = "dashed", linewidth = 1) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Replacement Cost vs. $200 Retention Investment",
+    subtitle = "Replacement cost shown across employee salaries at 0.5×–4× annual salary",
+    x = "Replacement Cost Multiplier (× Annual Salary)",
+    y = "Estimated Replacement Cost"
+  ) +
+  theme_minimal(base_size = 16)
+
+median_salary <- employee_data_clean %>%
+  mutate(AnnualSalary = MonthlyIncome * 12) %>%
+  summarise(med_salary = median(AnnualSalary, na.rm = TRUE)) %>%
+  pull(med_salary)
+
+median_table <- data.frame(
+  Scenario = c("0.5× Salary", "1× Salary", "2× Salary", "4× Salary"),
+  `Replacement Cost` = dollar(median_salary * c(0.5, 1, 2, 4))
+)
+
+median_table %>%
+  kable(
+    align = "lc",
+    caption = "Estimated Replacement Cost (Median Salary)"
+  ) %>%
+  kable_styling(
+    full_width = FALSE,
+    font_size = 20,
+    position = "center"
+  ) %>%
+  row_spec(0, bold = TRUE) %>%
+  row_spec(1, bold = TRUE, background = "#FDECEC")
+```
+## Table ready confusion matrix
+```{r confusion matrix table}
+
+cm_scorecard <- function(cm_obj, model_name = "Model") {
+  tab <- cm_obj$table
+  TP <- tab["Yes","Yes"]
+  TN <- tab["No","No"]
+  FP <- tab["Yes","No"]
+  FN <- tab["No","Yes"]
+
+  tibble(
+    Model = model_name,
+    TP = TP, FP = FP, TN = TN, FN = FN,
+    Accuracy = percent(unname(cm_obj$overall["Accuracy"]), 0.1),
+    Sensitivity = percent(unname(cm_obj$byClass["Sensitivity"]), 0.1),
+    Specificity = percent(unname(cm_obj$byClass["Specificity"]), 0.1),
+    Precision = percent(unname(cm_obj$byClass["Pos Pred Value"]), 0.1)
+  )
+}
+
+score_tbl <- bind_rows(
+  cm_scorecard(kNNcm, "k-NN (k=23, t=0.09)"),
+  cm_scorecard(nbcm,  "Naive Bayes (t=0.11)")
+)
+
+kable(score_tbl, caption = "Model Confusion Matrix Scorecard") %>%
+  kable_styling(full_width = FALSE, font_size = 18) %>%
+  row_spec(0, bold = TRUE) %>%
+  column_spec(1, bold = TRUE)
+
+```
+
+## Competition output for new csv file
+```{r competition code}
+comp_data = read.csv("/Users/dianewroberts/Case Study 1/CaseStudy1CompSet No Attrition.csv", sep = ",", header = TRUE)
+
+head(comp_data)
+str(comp_data)
+
+names(comp_data)
+
+# Retrain the knn model
+
+kNN_small_data2 <- employee_data_clean %>%
+  mutate(
+    Attrition_factor = factor(Attrition_factor, levels = c("No", "Yes")),
+    OverTime_Yes = ifelse(OverTime == "Yes", 1, 0)
+  ) %>%
+  select(
+    Attrition_factor,
+    StockOptionLevel,
+    JobLevel,
+    OverTime_Yes,
+    MonthlyIncome,
+    Age
+  )
+
+set.seed(123)
+trainIndices <- createDataPartition(
+  kNN_small_data2$Attrition_factor,
+  p = 0.70,
+  list = FALSE
+)
+
+trainData_knn3 <- kNN_small_data2[trainIndices, ]
+testData_knn3  <- kNN_small_data2[-trainIndices, ]
+
+knn_k23b <- train(
+  Attrition_factor ~ .,
+  data = trainData_knn3,
+  method = "knn",
+  preProcess = c("center", "scale"),
+  tuneGrid = data.frame(k = 23)
+)
+
+library(dplyr)
+
+comp_data_clean <- comp_data %>%
+  mutate(
+    OverTime_Yes = ifelse(OverTime == "Yes", 1, 0),
+    MaritalStatus_Single = ifelse(MaritalStatus == "Single", 1, 0),
+    Travel_Frequently = ifelse(BusinessTravel == "Travel_Frequently", 1, 0)
+  ) %>%
+  select(
+    ID, # Keep ID for the final output order
+    TotalWorkingYears,
+    MonthlyIncome,
+    Age,
+    StockOptionLevel,
+    JobSatisfaction,
+    OverTime_Yes,
+    MaritalStatus_Single,
+    Travel_Frequently,
+    JobInvolvement,
+    WorkLifeBalance,
+    JobLevel
+  )
+
+comp_data_clean_scaled <- comp_data_clean %>%
+  mutate(across(-ID, scale))
+
+prob_yes_comp <- predict(knn_k23b, newdata = comp_data_clean, type = "prob")[, "Yes"]
+comp_predictions <- ifelse(prob_yes_comp >= 0.09, "Yes", "No")
+
+submission_df <- data.frame(
+  ID = comp_data_clean$ID,
+  Attrition = comp_predictions
+)
+
+submission_df <- submission_df[order(submission_df$ID), ]
+
+write.csv(submission_df, "/Users/dianewroberts/Case Study 1/Case1PredictionsRoberts Attrition.csv", row.names = FALSE)
+
+```
